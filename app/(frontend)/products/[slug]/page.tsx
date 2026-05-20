@@ -19,7 +19,7 @@ export async function generateMetadata({
   if (!product) return { title: "Tidak ditemukan — CANALAA" };
   return {
     title: `${product.name} — CANALAA`,
-    description: product.description,
+    description: `${product.name} — Rp ${product.price.toLocaleString("id-ID")}. Order via WhatsApp.`,
   };
 }
 

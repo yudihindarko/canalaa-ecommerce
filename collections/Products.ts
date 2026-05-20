@@ -1,5 +1,24 @@
 import type { CollectionConfig } from "payload";
 
+function slugify(text: string): string {
+  return text
+    .toLowerCase()
+    .normalize("NFKD")
+    .replace(/[̀-ͯ]/g, "")
+    .replace(/[^a-z0-9\s-]/g, "")
+    .trim()
+    .replace(/\s+/g, "-")
+    .replace(/-+/g, "-");
+}
+
+function randomPriceIDR(): number {
+  const minK = 450;
+  const maxK = 530;
+  const stepK = 5;
+  const steps = Math.floor((maxK - minK) / stepK) + 1;
+  return (minK + Math.floor(Math.random() * steps) * stepK) * 1000;
+}
+
 export const Products: CollectionConfig = {
   slug: "products",
   access: {
@@ -7,7 +26,7 @@ export const Products: CollectionConfig = {
   },
   admin: {
     useAsTitle: "name",
-    defaultColumns: ["name", "price", "color", "featured"],
+    defaultColumns: ["name", "price", "featured"],
   },
   fields: [
     {
@@ -20,8 +39,24 @@ export const Products: CollectionConfig = {
       type: "text",
       required: true,
       unique: true,
+      index: true,
       admin: {
-        description: "URL slug — lowercase, no spaces. Contoh: runner-black",
+        description:
+          "Auto-generated from name (SEO friendly). You can override if needed.",
+        position: "sidebar",
+      },
+      hooks: {
+        beforeValidate: [
+          ({ value, data }) => {
+            if (typeof value === "string" && value.trim().length > 0) {
+              return slugify(value);
+            }
+            if (typeof data?.name === "string" && data.name.length > 0) {
+              return slugify(data.name);
+            }
+            return value;
+          },
+        ],
       },
     },
     {
@@ -29,22 +64,10 @@ export const Products: CollectionConfig = {
       type: "number",
       required: true,
       min: 0,
+      defaultValue: randomPriceIDR,
       admin: {
-        description: "Harga dalam IDR (tanpa titik/koma). Contoh: 285000",
-      },
-    },
-    {
-      name: "color",
-      type: "text",
-      admin: {
-        description: "Warna. Contoh: Black, Cream, Olive",
-      },
-    },
-    {
-      name: "description",
-      type: "textarea",
-      admin: {
-        description: "Deskripsi produk (bisa multi-baris)",
+        description:
+          "Harga dalam IDR. Default disarankan acak antara Rp 450.000 – Rp 530.000.",
       },
     },
     {
@@ -109,6 +132,7 @@ export const Products: CollectionConfig = {
       defaultValue: false,
       admin: {
         description: "Tampilkan di homepage New Drops",
+        position: "sidebar",
       },
     },
   ],

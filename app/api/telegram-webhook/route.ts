@@ -1,11 +1,20 @@
 import { webhookCallback } from "grammy";
-import { getPayload } from "payload";
-import config from "@payload-config";
+import { after } from "next/server";
 import { buildBot } from "@/lib/telegram-bot";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 60;
 
+/**
+ * Pattern: ack Telegram in <100ms, run the bot in the background.
+ *
+ * Telegram retries the webhook if it doesn't get a 200 within ~60s.
+ * Our bot path (download photo + R2 upload + Postgres insert) can be
+ * slow enough on a cold start that Telegram retries before we reply,
+ * which doubled-up products. Returning 200 immediately and using
+ * Next.js's after() to do the work post-response means there is
+ * nothing to retry — and we don't need an idempotency table.
+ */
 export async function POST(req: Request) {
   const token = process.env.TELEGRAM_BOT_TOKEN;
   if (!token) {
@@ -20,47 +29,27 @@ export async function POST(req: Request) {
     }
   }
 
-  // Read body once so we can parse update_id for idempotency AND re-feed it to grammy
+  // Consume body now so we can hand a fresh Request to grammy in the background
   const bodyText = await req.text();
-  let updateId: number | undefined;
-  try {
-    const parsed = JSON.parse(bodyText) as { update_id?: number };
-    updateId = parsed.update_id;
-  } catch {
-    // If body isn't valid JSON, let grammy reject it
-  }
+  const url = req.url;
+  const headers = req.headers;
 
-  // Idempotency gate: attempt to record this update_id atomically.
-  // Unique constraint violation = Telegram retry; ack with 200 and stop.
-  if (updateId !== undefined) {
+  after(async () => {
     try {
-      const payload = await getPayload({ config });
-      await payload.create({
-        collection: "bot-updates",
-        data: { updateId: String(updateId) },
+      const forwardedReq = new Request(url, {
+        method: "POST",
+        headers,
+        body: bodyText,
       });
+      const bot = buildBot(token);
+      const handle = webhookCallback(bot, "std/http");
+      await handle(forwardedReq);
     } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err);
-      if (/unique|duplicate/i.test(msg)) {
-        return new Response("duplicate update, already processed", {
-          status: 200,
-        });
-      }
-      // Some other failure — log but proceed so we don't block real updates
-      console.error("[webhook] idempotency check error:", err);
+      console.error("[webhook] background processing error:", err);
     }
-  }
-
-  // Re-build the request because we already consumed the body
-  const forwardedReq = new Request(req.url, {
-    method: "POST",
-    headers: req.headers,
-    body: bodyText,
   });
 
-  const bot = buildBot(token);
-  const handle = webhookCallback(bot, "std/http");
-  return handle(forwardedReq);
+  return new Response("ok", { status: 200 });
 }
 
 export async function GET() {
@@ -68,8 +57,7 @@ export async function GET() {
     JSON.stringify({
       ok: true,
       bot: "CANALAA admin",
-      mode: "webhook",
-      idempotent: true,
+      mode: "webhook (background)",
       note: "POST endpoint for Telegram updates",
     }),
     { headers: { "content-type": "application/json" } },

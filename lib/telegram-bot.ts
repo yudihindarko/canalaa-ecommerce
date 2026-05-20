@@ -1,6 +1,7 @@
 import { Bot, Context } from "grammy";
 import {
   createProductFromDraft,
+  getSiteUrl,
   parseCaption,
   parseSizes,
   randomPriceIDR,
@@ -78,10 +79,11 @@ async function handleQuickAdd(
       featured: parsed.featured ?? false,
     };
     const { slug } = await createProductFromDraft(draft);
+    const site = getSiteUrl();
     await ctx.reply(
       `✅ *${draft.name}* berhasil dibuat!\n\n` +
-        `→ http://localhost:3000/products/${slug}\n` +
-        `→ http://localhost:3000/admin/collections/products`,
+        `→ ${site}/products/${slug}\n` +
+        `→ ${site}/admin/collections/products`,
       { parse_mode: "Markdown" },
     );
   } catch (err) {
@@ -263,10 +265,11 @@ export function buildBot(token: string): Bot {
       };
       const { slug } = await createProductFromDraft(draft);
       resetState(userId);
+      const site = getSiteUrl();
       await ctx.reply(
         `✅ *${draft.name}* berhasil dibuat!\n\n` +
-          `→ http://localhost:3000/products/${slug}\n` +
-          `→ http://localhost:3000/admin/collections/products`,
+          `→ ${site}/products/${slug}\n` +
+          `→ ${site}/admin/collections/products`,
         { parse_mode: "Markdown" },
       );
     } catch (err) {

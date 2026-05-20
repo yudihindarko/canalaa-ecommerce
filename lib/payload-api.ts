@@ -146,6 +146,15 @@ function getApiUrl(): string {
   return "http://localhost:3000";
 }
 
+export function getSiteUrl(): string {
+  if (process.env.SITE_URL) return process.env.SITE_URL.replace(/\/$/, "");
+  if (process.env.PAYLOAD_API_URL) {
+    return process.env.PAYLOAD_API_URL.replace(/\/$/, "");
+  }
+  if (process.env.VERCEL_URL) return `https://${process.env.VERCEL_URL}`;
+  return "http://localhost:3000";
+}
+
 const API_URL = getApiUrl();
 
 let cachedToken: string | null = null;
@@ -224,34 +233,49 @@ export async function createProductFromDraft(
     mediaIds.push(id);
   }
 
-  const slug = slugify(draft.name);
-  const body = {
-    name: draft.name,
-    slug,
-    price: draft.price,
-    featured: draft.featured ?? false,
-    images: mediaIds.map((id) => ({ image: id })),
-    sizes: draft.sizes.map((s) => ({
-      eu: s.eu,
-      cm: s.cm,
-      inStock: s.inStock !== false,
-    })),
-  };
+  const baseSlug = slugify(draft.name);
+  const maxAttempts = 20;
 
-  const res = await fetch(`${API_URL}/api/products`, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      Authorization: `JWT ${token}`,
-    },
-    body: JSON.stringify(body),
-  });
+  for (let attempt = 0; attempt < maxAttempts; attempt++) {
+    const slug = attempt === 0 ? baseSlug : `${baseSlug}-${attempt + 1}`;
+    const body = {
+      name: draft.name,
+      slug,
+      price: draft.price,
+      featured: draft.featured ?? false,
+      images: mediaIds.map((id) => ({ image: id })),
+      sizes: draft.sizes.map((s) => ({
+        eu: s.eu,
+        cm: s.cm,
+        inStock: s.inStock !== false,
+      })),
+    };
 
-  if (!res.ok) {
-    throw new Error(
-      `Buat produk gagal: ${res.status} ${await res.text()}`,
-    );
+    const res = await fetch(`${API_URL}/api/products`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `JWT ${token}`,
+      },
+      body: JSON.stringify(body),
+    });
+
+    if (res.ok) {
+      const data = (await res.json()) as {
+        doc: { id: string; slug: string };
+      };
+      return { slug: data.doc.slug, id: data.doc.id };
+    }
+
+    const errorText = await res.text();
+    const isSlugConflict =
+      res.status === 400 && /"path"\s*:\s*"slug"/.test(errorText);
+    if (isSlugConflict) continue;
+
+    throw new Error(`Buat produk gagal: ${res.status} ${errorText}`);
   }
-  const data = (await res.json()) as { doc: { id: string; slug: string } };
-  return { slug: data.doc.slug, id: data.doc.id };
+
+  throw new Error(
+    `Tidak bisa membuat slug unik untuk "${draft.name}" setelah ${maxAttempts} percobaan`,
+  );
 }

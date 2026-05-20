@@ -16,9 +16,9 @@ export function Header() {
           <Link href="/products" className="hover:opacity-60 transition-opacity">
             Shop
           </Link>
-          <Link href="/about" className="hidden sm:inline-block hover:opacity-60 transition-opacity">
+          {/* <Link href="/about" className="hidden sm:inline-block hover:opacity-60 transition-opacity">
             About
-          </Link>
+          </Link> */}
           <a
             href={buildGenericWhatsAppUrl()}
             target="_blank"

@@ -3,6 +3,9 @@ import { ManifestoHero } from "@/components/ManifestoHero";
 import { ProductCard } from "@/components/ProductCard";
 import { getFeaturedProducts } from "@/lib/products";
 
+// Refresh at most once a minute, plus on-demand via Products afterChange.
+export const revalidate = 60;
+
 export default async function Home() {
   const featured = await getFeaturedProducts();
 

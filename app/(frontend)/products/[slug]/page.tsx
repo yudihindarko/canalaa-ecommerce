@@ -4,6 +4,9 @@ import { ProductGallery } from "@/components/ProductGallery";
 import { ProductActions } from "@/components/ProductActions";
 import { getAllSlugs, getProductBySlug } from "@/lib/products";
 
+// Refresh individual product pages every 5 min, plus on-demand via afterChange.
+export const revalidate = 300;
+
 export async function generateStaticParams() {
   const slugs = await getAllSlugs();
   return slugs.map((slug) => ({ slug }));

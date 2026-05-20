@@ -1,4 +1,5 @@
 import type { CollectionConfig } from "payload";
+import { revalidatePath } from "next/cache";
 
 function slugify(text: string): string {
   return text
@@ -19,6 +20,20 @@ function randomPriceIDR(): number {
   return (minK + Math.floor(Math.random() * steps) * stepK) * 1000;
 }
 
+function revalidateStorefront(slug?: string | null) {
+  try {
+    revalidatePath("/");
+    revalidatePath("/products");
+    if (slug) revalidatePath(`/products/${slug}`);
+  } catch (e) {
+    // revalidatePath throws outside Next.js context (e.g. local CLI scripts).
+    // Safe to swallow — Payload from Next.js runtime always has it available.
+    if (process.env.NODE_ENV !== "production") {
+      console.warn("[products] revalidate skipped:", e);
+    }
+  }
+}
+
 export const Products: CollectionConfig = {
   slug: "products",
   access: {
@@ -27,6 +42,20 @@ export const Products: CollectionConfig = {
   admin: {
     useAsTitle: "name",
     defaultColumns: ["name", "price", "featured"],
+  },
+  hooks: {
+    afterChange: [
+      ({ doc, operation }) => {
+        if (operation === "create" || operation === "update") {
+          revalidateStorefront(doc?.slug);
+        }
+      },
+    ],
+    afterDelete: [
+      ({ doc }) => {
+        revalidateStorefront(doc?.slug);
+      },
+    ],
   },
   fields: [
     {

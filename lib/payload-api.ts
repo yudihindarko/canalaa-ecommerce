@@ -140,7 +140,13 @@ export function parseSizes(input: string): DraftSize[] {
   }));
 }
 
-const API_URL = process.env.PAYLOAD_API_URL || "http://localhost:3000";
+function getApiUrl(): string {
+  if (process.env.PAYLOAD_API_URL) return process.env.PAYLOAD_API_URL;
+  if (process.env.VERCEL_URL) return `https://${process.env.VERCEL_URL}`;
+  return "http://localhost:3000";
+}
+
+const API_URL = getApiUrl();
 
 let cachedToken: string | null = null;
 let tokenExpiresAt = 0;

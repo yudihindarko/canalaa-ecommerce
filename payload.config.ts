@@ -32,10 +32,8 @@ export default buildConfig({
     pool: {
       connectionString: process.env.DATABASE_URI || "",
     },
-    // TEMPORARY: enabled so the new "sales" collection's table is auto-created
-    // on first deploy. Revert to false (or remove) in the very next commit
-    // once the table is verified in Neon.
-    push: true,
+    // push: true was enabled temporarily to auto-create the sales table on
+    // first deploy. Reverted now that the table exists in Neon.
   }),
   sharp,
   plugins: [

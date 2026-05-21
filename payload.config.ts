@@ -21,6 +21,11 @@ export default buildConfig({
       title: "CANALAA Admin",
       description: "Manage CANALAA products and media",
     },
+    components: {
+      afterNavLinks: [
+        "@/components/admin/DashboardNavLink#DashboardNavLink",
+      ],
+    },
   },
   collections: [Users, Media, Products, Sales],
   editor: lexicalEditor(),

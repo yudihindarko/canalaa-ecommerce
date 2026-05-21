@@ -364,3 +364,144 @@ export async function rejectSales(ids: string[]): Promise<void> {
     }
   }
 }
+
+// ─── Expenses ───────────────────────────────────────────────────────────
+
+export type PendingExpenseInput = {
+  month: Date;
+  type: "fixed" | "variable";
+  category: string;
+  amount: number;
+  notes?: string;
+};
+
+export async function createPendingExpenses(
+  items: PendingExpenseInput[],
+): Promise<string[]> {
+  const token = await getToken();
+  const ids: string[] = [];
+
+  for (const item of items) {
+    const res = await fetch(`${API_URL}/api/expenses`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `JWT ${token}`,
+      },
+      body: JSON.stringify({
+        month: item.month.toISOString(),
+        type: item.type,
+        category: item.category,
+        amount: item.amount,
+        notes: item.notes ?? "",
+        status: "pending",
+      }),
+    });
+    if (!res.ok) {
+      throw new Error(
+        `Simpan pending expense gagal: ${res.status} ${await res.text()}`,
+      );
+    }
+    const data = (await res.json()) as { doc: { id: string | number } };
+    ids.push(String(data.doc.id));
+  }
+
+  return ids;
+}
+
+export async function confirmExpenses(ids: string[]): Promise<void> {
+  const token = await getToken();
+  for (const id of ids) {
+    const res = await fetch(`${API_URL}/api/expenses/${id}`, {
+      method: "PATCH",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `JWT ${token}`,
+      },
+      body: JSON.stringify({ status: "confirmed" }),
+    });
+    if (!res.ok) {
+      throw new Error(
+        `Konfirmasi expense ${id} gagal: ${res.status} ${await res.text()}`,
+      );
+    }
+  }
+}
+
+export async function rejectExpenses(ids: string[]): Promise<void> {
+  const token = await getToken();
+  for (const id of ids) {
+    const res = await fetch(`${API_URL}/api/expenses/${id}`, {
+      method: "DELETE",
+      headers: { Authorization: `JWT ${token}` },
+    });
+    if (!res.ok && res.status !== 404) {
+      throw new Error(
+        `Reject expense ${id} gagal: ${res.status} ${await res.text()}`,
+      );
+    }
+  }
+}
+
+function monthBoundsISO(monthDate: Date): { startISO: string; endISO: string } {
+  const start = new Date(
+    Date.UTC(monthDate.getUTCFullYear(), monthDate.getUTCMonth(), 1),
+  );
+  const end = new Date(
+    Date.UTC(monthDate.getUTCFullYear(), monthDate.getUTCMonth() + 1, 1),
+  );
+  return { startISO: start.toISOString(), endISO: end.toISOString() };
+}
+
+export async function countConfirmedExpensesForMonth(
+  monthDate: Date,
+): Promise<number> {
+  const token = await getToken();
+  const { startISO, endISO } = monthBoundsISO(monthDate);
+  const url =
+    `${API_URL}/api/expenses` +
+    `?where[and][0][status][equals]=confirmed` +
+    `&where[and][1][month][greater_than_equal]=${encodeURIComponent(startISO)}` +
+    `&where[and][2][month][less_than]=${encodeURIComponent(endISO)}` +
+    `&limit=1&depth=0`;
+  const res = await fetch(url, {
+    headers: { Authorization: `JWT ${token}` },
+  });
+  if (!res.ok) return 0;
+  const data = (await res.json()) as { totalDocs?: number };
+  return data.totalDocs ?? 0;
+}
+
+export async function deleteConfirmedExpensesForMonth(
+  monthDate: Date,
+): Promise<number> {
+  const token = await getToken();
+  const { startISO, endISO } = monthBoundsISO(monthDate);
+  const findUrl =
+    `${API_URL}/api/expenses` +
+    `?where[and][0][status][equals]=confirmed` +
+    `&where[and][1][month][greater_than_equal]=${encodeURIComponent(startISO)}` +
+    `&where[and][2][month][less_than]=${encodeURIComponent(endISO)}` +
+    `&limit=500&depth=0`;
+  const findRes = await fetch(findUrl, {
+    headers: { Authorization: `JWT ${token}` },
+  });
+  if (!findRes.ok) {
+    throw new Error(
+      `Find expenses gagal: ${findRes.status} ${await findRes.text()}`,
+    );
+  }
+  const findData = (await findRes.json()) as {
+    docs: Array<{ id: string | number }>;
+  };
+
+  let deleted = 0;
+  for (const doc of findData.docs) {
+    const delRes = await fetch(`${API_URL}/api/expenses/${doc.id}`, {
+      method: "DELETE",
+      headers: { Authorization: `JWT ${token}` },
+    });
+    if (delRes.ok || delRes.status === 404) deleted++;
+  }
+  return deleted;
+}

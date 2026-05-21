@@ -38,6 +38,7 @@ export default async function DashboardPage() {
 
   const expensesResult = await payload.find({
     collection: "expenses",
+    where: { status: { equals: "confirmed" } },
     limit: 1000,
     sort: "-month",
   });

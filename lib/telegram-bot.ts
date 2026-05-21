@@ -1,12 +1,17 @@
 import { Bot, Context, InlineKeyboard } from "grammy";
 import {
+  confirmExpenses,
   confirmSales,
+  countConfirmedExpensesForMonth,
+  createPendingExpenses,
   createPendingSales,
   createProductFromDraft,
+  deleteConfirmedExpensesForMonth,
   getSiteUrl,
   parseCaption,
   parseSizes,
   randomPriceIDR,
+  rejectExpenses,
   rejectSales,
   type DraftProduct,
   type DraftSize,
@@ -16,6 +21,12 @@ import {
   parseSalesReport,
   type ParsedSaleItem,
 } from "./sales-parser";
+import {
+  EXPENSE_LABEL,
+  looksLikeExpenseReport,
+  parseExpenseReport,
+  type ParsedExpenseItem,
+} from "./expense-parser";
 
 type PhotoBuffer = { buffer: Buffer; mimeType: string; filename: string };
 
@@ -72,8 +83,7 @@ async function handleQuickAdd(
   const priceWasRandom = parsed.price === undefined;
 
   await ctx.reply(
-    `⏳ Membuat *${parsed.name}* (${photos.length} foto, ${parsed.sizes!.length} ukuran${
-      priceWasRandom ? `, harga random Rp ${price.toLocaleString("id-ID")}` : ""
+    `⏳ Membuat *${parsed.name}* (${photos.length} foto, ${parsed.sizes!.length} ukuran${priceWasRandom ? `, harga random Rp ${price.toLocaleString("id-ID")}` : ""
     })...`,
     { parse_mode: "Markdown" },
   );
@@ -90,8 +100,8 @@ async function handleQuickAdd(
     const site = getSiteUrl();
     await ctx.reply(
       `✅ *${draft.name}* berhasil dibuat!\n\n` +
-        `→ ${site}/products/${slug}\n` +
-        `→ ${site}/admin/collections/products`,
+      `→ ${site}/products/${slug}\n` +
+      `→ ${site}/admin/collections/products`,
       { parse_mode: "Markdown" },
     );
   } catch (err) {
@@ -221,6 +231,128 @@ async function handleSalesReport(ctx: Context, text: string) {
   });
 }
 
+// ─── Expense report handler ─────────────────────────────────────────────
+
+function buildExpensePreview(
+  monthDate: Date,
+  items: ParsedExpenseItem[],
+  unparsed: string[],
+): string {
+  const fixed = items.filter((i) => i.type === "fixed");
+  const variable = items.filter((i) => i.type === "variable");
+  const fixedTotal = fixed.reduce((s, x) => s + x.amount, 0);
+  const variableTotal = variable.reduce((s, x) => s + x.amount, 0);
+  const total = fixedTotal + variableTotal;
+
+  const lines: string[] = [
+    `📋 *Laporan Biaya ${formatIndoDate(monthDate).split(" ").slice(1).join(" ")}* (${items.length} item)`,
+    "",
+  ];
+
+  if (fixed.length > 0) {
+    lines.push("*TETAP*");
+    for (const f of fixed) {
+      lines.push(`  ${EXPENSE_LABEL[f.category] ?? f.category} — ${formatIDR(f.amount)}`);
+    }
+    lines.push(`  _Subtotal: ${formatIDR(fixedTotal)}_`);
+    lines.push("");
+  }
+
+  if (variable.length > 0) {
+    lines.push("*VARIABLE*");
+    for (const v of variable) {
+      lines.push(`  ${EXPENSE_LABEL[v.category] ?? v.category} — ${formatIDR(v.amount)}`);
+    }
+    lines.push(`  _Subtotal: ${formatIDR(variableTotal)}_`);
+    lines.push("");
+  }
+
+  lines.push(`💰 *Total Biaya: ${formatIDR(total)}*`);
+
+  if (unparsed.length > 0) {
+    lines.push("");
+    lines.push("⚠️ Baris tidak terparsing:");
+    for (const u of unparsed) lines.push(`  • ${u}`);
+  }
+
+  return lines.join("\n");
+}
+
+async function handleExpenseReport(ctx: Context, text: string) {
+  const parsed = parseExpenseReport(text);
+
+  if (!parsed.monthDate) {
+    await ctx.reply(
+      "⚠️ Bulan tidak terdeteksi. Tambahkan baris seperti `BIAYA FEB 2026` di atas.",
+      { parse_mode: "Markdown" },
+    );
+    return;
+  }
+  if (parsed.items.length === 0) {
+    await ctx.reply(
+      "⚠️ Tidak ada item biaya terdeteksi. Format: `Internet 177`",
+      { parse_mode: "Markdown" },
+    );
+    return;
+  }
+
+  await ctx.reply("⏳ Menyimpan draft laporan biaya...");
+
+  let pendingIds: string[];
+  try {
+    pendingIds = await createPendingExpenses(
+      parsed.items.map((it) => ({
+        month: parsed.monthDate!,
+        type: it.type,
+        category: it.category,
+        amount: it.amount,
+        notes: it.raw,
+      })),
+    );
+  } catch (err) {
+    console.error("[bot] expense draft error:", err);
+    await ctx.reply(`❌ Gagal menyimpan draft: ${(err as Error).message}`);
+    return;
+  }
+
+  let existingCount = 0;
+  try {
+    existingCount = await countConfirmedExpensesForMonth(parsed.monthDate);
+  } catch (err) {
+    console.warn("[bot] count existing expenses failed:", err);
+  }
+
+  const monthIso = parsed.monthDate.toISOString();
+  const preview = buildExpensePreview(parsed.monthDate, parsed.items, parsed.unparsedLines);
+
+  const kb = new InlineKeyboard();
+  if (existingCount > 0) {
+    kb.text("♻️ Replace", `expense-replace:${pendingIds.join(",")}|${monthIso}`)
+      .text("➕ Tambah", `expense-confirm:${pendingIds.join(",")}`)
+      .row()
+      .text("❌ Batal", `expense-reject:${pendingIds.join(",")}`);
+  } else {
+    kb.text("✅ Simpan", `expense-confirm:${pendingIds.join(",")}`).text(
+      "❌ Batal",
+      `expense-reject:${pendingIds.join(",")}`,
+    );
+  }
+
+  let finalText = preview;
+  if (existingCount > 0) {
+    finalText +=
+      `\n\n⚠️ Bulan ini sudah ada *${existingCount} biaya tersimpan*. ` +
+      `Pilih *Replace* untuk hapus yang lama dulu, atau *Tambah* untuk tambahkan saja.`;
+  } else {
+    finalText += "\n\nKonfirmasi laporan biaya ini?";
+  }
+
+  await ctx.reply(finalText, {
+    parse_mode: "Markdown",
+    reply_markup: kb,
+  });
+}
+
 type WizardStep =
   | "idle"
   | "awaiting-name"
@@ -284,14 +416,14 @@ export function buildBot(token: string): Bot {
   bot.command("start", async (ctx) => {
     await ctx.reply(
       `👟 *CANALAA Admin Bot*\n\n` +
-        `*Tambah produk:*\n` +
-        `Foto + caption \`\`\`\nRunner Black\n40=25cm\n41=26cm\`\`\`\n` +
-        `atau /add untuk wizard\n\n` +
-        `*Laporan penjualan harian:*\n` +
-        `/laporan untuk lihat format, atau langsung kirim:\n` +
-        `\`\`\`\nTODAY 12 MEI 2026\n1. NB 2002R(400-TF, 250)\n\`\`\`\n\n` +
-        `*Perintah lain:*\n` +
-        `/done /cancel /featured /help`,
+      `*Tambah produk:*\n` +
+      `Foto + caption \`\`\`\nRunner Black\n40=25cm\n41=26cm\`\`\`\n` +
+      `atau /add untuk wizard\n\n` +
+      `*Laporan penjualan harian:*\n` +
+      `/laporan untuk lihat format, atau langsung kirim:\n` +
+      `\`\`\`\nTODAY 12 MEI 2026\n1. NB 2002R(400-TF, 250)\n\`\`\`\n\n` +
+      `*Perintah lain:*\n` +
+      `/done /cancel /featured /help`,
       { parse_mode: "Markdown" },
     );
   });
@@ -299,22 +431,22 @@ export function buildBot(token: string): Bot {
   bot.command("help", async (ctx) => {
     await ctx.reply(
       `*QUICK MODE (1 pesan):*\n` +
-        `Kirim foto dengan caption:\n` +
-        `\`\`\`\nNama Produk\n39-44\n\`\`\`\n` +
-        `Bisa kirim album (banyak foto) — caption di foto pertama.\n\n` +
-        `*Format ukuran:*\n` +
-        `• \`39-44\` — range\n` +
-        `• \`41,42\` — list\n` +
-        `• \`40=25cm\` per baris — eksplisit (paling akurat)\n\n` +
-        `*Caption opsional:*\n` +
-        `• \`485000\` atau \`Rp 485k\` — set harga (default random 450k–530k)\n` +
-        `• \`hide\` atau \`not featured\` — sembunyikan dari homepage\n\n` +
-        `*Default:* semua produk auto-featured (muncul di homepage)\n\n` +
-        `*Contoh:*\n` +
-        `\`\`\`\nRunner Black\n40=25cm\n41=26cm\n485k\n\`\`\`\n\n` +
-        `*WIZARD MODE:*\n` +
-        `/add → ikuti pertanyaan satu per satu\n` +
-        `/done /cancel`,
+      `Kirim foto dengan caption:\n` +
+      `\`\`\`\nNama Produk\n39-44\n\`\`\`\n` +
+      `Bisa kirim album (banyak foto) — caption di foto pertama.\n\n` +
+      `*Format ukuran:*\n` +
+      `• \`39-44\` — range\n` +
+      `• \`41,42\` — list\n` +
+      `• \`40=25cm\` per baris — eksplisit (paling akurat)\n\n` +
+      `*Caption opsional:*\n` +
+      `• \`485000\` atau \`Rp 485k\` — set harga (default random 450k–530k)\n` +
+      `• \`hide\` atau \`not featured\` — sembunyikan dari homepage\n\n` +
+      `*Default:* semua produk auto-featured (muncul di homepage)\n\n` +
+      `*Contoh:*\n` +
+      `\`\`\`\nRunner Black\n40=25cm\n41=26cm\n485k\n\`\`\`\n\n` +
+      `*WIZARD MODE:*\n` +
+      `/add → ikuti pertanyaan satu per satu\n` +
+      `/done /cancel`,
       { parse_mode: "Markdown" },
     );
   });
@@ -376,8 +508,8 @@ export function buildBot(token: string): Bot {
       const site = getSiteUrl();
       await ctx.reply(
         `✅ *${draft.name}* berhasil dibuat!\n\n` +
-          `→ ${site}/products/${slug}\n` +
-          `→ ${site}/admin/collections/products`,
+        `→ ${site}/products/${slug}\n` +
+        `→ ${site}/admin/collections/products`,
         { parse_mode: "Markdown" },
       );
     } catch (err) {
@@ -447,7 +579,7 @@ export function buildBot(token: string): Bot {
       state.step = "awaiting-sizes";
       await ctx.reply(
         `✓ Harga: *Rp ${price.toLocaleString("id-ID")}*\n\n` +
-          `📏 Kirim *ukuran tersedia* (contoh: 39-44 atau 39,40,42):`,
+        `📏 Kirim *ukuran tersedia* (contoh: 39-44 atau 39,40,42):`,
         { parse_mode: "Markdown" },
       );
       return;
@@ -466,11 +598,17 @@ export function buildBot(token: string): Bot {
       const list = sizes.map((s) => `EU ${s.eu}`).join(", ");
       await ctx.reply(
         `✓ Ukuran: *${list}*\n\n` +
-          `📷 Kirim *foto produk* (1 atau lebih).\n` +
-          `Kalau sudah, kirim /done untuk simpan.\n` +
-          `Tambah /featured untuk muncul di homepage.`,
+        `📷 Kirim *foto produk* (1 atau lebih).\n` +
+        `Kalau sudah, kirim /done untuk simpan.\n` +
+        `Tambah /featured untuk muncul di homepage.`,
         { parse_mode: "Markdown" },
       );
+      return;
+    }
+
+    // Expense report auto-detection (check before sales since headers differ)
+    if (looksLikeExpenseReport(text)) {
+      await handleExpenseReport(ctx, text);
       return;
     }
 
@@ -481,27 +619,58 @@ export function buildBot(token: string): Bot {
     }
 
     await ctx.reply(
-      "💡 Tambah produk → /add\nLaporan penjualan → /laporan\nPanduan → /help",
+      "Tambah produk → /add\nLaporan penjualan → /laporan\nLaporan biaya → /biaya\nPanduan → /help",
     );
   });
 
   bot.command("laporan", async (ctx) => {
     await ctx.reply(
       "📋 Kirim laporan penjualan dengan format:\n\n" +
-        "```\nTODAY 12 MEI 2026\n\n" +
-        "1. NB 2002R ABU(400-TF, 250)\n" +
-        "2. BLEZER WARNA WARNI(200-CASH, 120)\n```\n\n" +
-        "Format per item: `N. Nama Produk(JUAL-METODE, MODAL)` — harga dan modal dalam ribuan.",
+      "```\nTODAY 12 MEI 2026\n\n" +
+      "1. NB 2002R ABU(400-TF, 250)\n" +
+      "2. BLEZER WARNA WARNI(200-CASH, 120)\n```\n\n" +
+      "Format per item: `N. Nama Produk(JUAL-METODE, MODAL)` — harga dan modal dalam ribuan.",
+      { parse_mode: "Markdown" },
+    );
+  });
+
+  bot.command("biaya", async (ctx) => {
+    await ctx.reply(
+      "💸 Kirim laporan biaya operasional bulanan dengan format:\n\n" +
+      "```\nBIAYA FEB 2026\n\n" +
+      "Internet 177\n" +
+      "Listrik 1000\n" +
+      "Sewa toko 2666.667\n" +
+      "Gaji karyawan 2640\n" +
+      "Konsumsi 700\n" +
+      "Plastik 172.2\n" +
+      "Maintenance 100\n```\n\n" +
+      "*Aturan:*\n" +
+      "• Header: `BIAYA <bulan> <tahun>` (contoh: BIAYA FEB 2026)\n" +
+      "• Per baris: `<kategori> <jumlah-ribuan>` — contoh `Internet 177` = Rp 177.000\n" +
+      "• Skip kategori bernilai 0\n" +
+      "• Bot auto-deteksi tetap/variable dari kategori\n\n" +
+      "*Kategori valid:* Internet, Listrik, Sewa toko, Gaji karyawan, Bonus, THR, " +
+      "Konsumsi, Renovasi, Plastik, Kardus, Kaos kaki, Maintenance, Ads IG, Shoes care, Price tag.",
       { parse_mode: "Markdown" },
     );
   });
 
   bot.on("callback_query:data", async (ctx) => {
     const data = ctx.callbackQuery.data;
-    const [action, idsStr] = data.split(":");
-    const ids = (idsStr ?? "").split(",").filter(Boolean);
+    const [action, payload] = data.split(":");
+    // payload format varies per action; ids are always the comma-list before any | separator
+    const [idsPart, extra] = (payload ?? "").split("|");
+    const ids = (idsPart ?? "").split(",").filter(Boolean);
 
-    if (action !== "sale-confirm" && action !== "sale-reject") {
+    const knownActions = new Set([
+      "sale-confirm",
+      "sale-reject",
+      "expense-confirm",
+      "expense-reject",
+      "expense-replace",
+    ]);
+    if (!knownActions.has(action)) {
       await ctx.answerCallbackQuery();
       return;
     }
@@ -517,10 +686,31 @@ export function buildBot(token: string): Bot {
         await ctx.reply(
           `✅ ${ids.length} penjualan tersimpan.\n→ ${getSiteUrl()}/dashboard`,
         );
-      } else {
+      } else if (action === "sale-reject") {
         await rejectSales(ids);
         await ctx.editMessageReplyMarkup(undefined);
         await ctx.reply(`❌ ${ids.length} penjualan dibatalkan.`);
+      } else if (action === "expense-confirm") {
+        await confirmExpenses(ids);
+        await ctx.editMessageReplyMarkup(undefined);
+        await ctx.reply(
+          `✅ ${ids.length} biaya tersimpan.\n→ ${getSiteUrl()}/dashboard`,
+        );
+      } else if (action === "expense-reject") {
+        await rejectExpenses(ids);
+        await ctx.editMessageReplyMarkup(undefined);
+        await ctx.reply(`❌ ${ids.length} biaya dibatalkan.`);
+      } else if (action === "expense-replace") {
+        const monthDate = extra ? new Date(extra) : null;
+        let removed = 0;
+        if (monthDate && !Number.isNaN(monthDate.getTime())) {
+          removed = await deleteConfirmedExpensesForMonth(monthDate);
+        }
+        await confirmExpenses(ids);
+        await ctx.editMessageReplyMarkup(undefined);
+        await ctx.reply(
+          `♻️ ${removed} biaya lama dihapus, ${ids.length} biaya baru tersimpan.\n→ ${getSiteUrl()}/dashboard`,
+        );
       }
       await ctx.answerCallbackQuery();
     } catch (err) {

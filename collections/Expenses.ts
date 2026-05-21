@@ -102,5 +102,22 @@ export const Expenses: CollectionConfig = {
         description: "Catatan tambahan (opsional)",
       },
     },
+    {
+      name: "status",
+      type: "select",
+      required: true,
+      defaultValue: "confirmed",
+      index: true,
+      options: [
+        { label: "Pending konfirmasi", value: "pending" },
+        { label: "Tersimpan", value: "confirmed" },
+        { label: "Dibatalkan", value: "rejected" },
+      ],
+      admin: {
+        position: "sidebar",
+        description:
+          "Hanya 'confirmed' yang dihitung di dashboard. Bot mulai dengan 'pending' → confirm via tombol.",
+      },
+    },
   ],
 };

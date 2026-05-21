@@ -1,6 +1,6 @@
 import { GoogleGenerativeAI } from "@google/generative-ai";
 
-const MODEL_NAME = "gemini-2.5-flash-image-preview";
+const MODEL_NAME = "gemini-2.5-flash-image";
 
 const SPORT_SETTINGS = [
   "trek lari outdoor saat golden hour",

@@ -1,13 +1,21 @@
-import { Bot, Context } from "grammy";
+import { Bot, Context, InlineKeyboard } from "grammy";
 import {
+  confirmSales,
+  createPendingSales,
   createProductFromDraft,
   getSiteUrl,
   parseCaption,
   parseSizes,
   randomPriceIDR,
+  rejectSales,
   type DraftProduct,
   type DraftSize,
 } from "./payload-api";
+import {
+  looksLikeSalesReport,
+  parseSalesReport,
+  type ParsedSaleItem,
+} from "./sales-parser";
 
 type PhotoBuffer = { buffer: Buffer; mimeType: string; filename: string };
 
@@ -112,6 +120,107 @@ function bufferMediaGroup(
   }, 2500);
 }
 
+const INDO_MONTHS_FULL = [
+  "Januari",
+  "Februari",
+  "Maret",
+  "April",
+  "Mei",
+  "Juni",
+  "Juli",
+  "Agustus",
+  "September",
+  "Oktober",
+  "November",
+  "Desember",
+];
+
+function formatIDR(amount: number): string {
+  return `Rp ${amount.toLocaleString("id-ID")}`;
+}
+
+function formatIndoDate(d: Date): string {
+  return `${d.getUTCDate()} ${INDO_MONTHS_FULL[d.getUTCMonth()]} ${d.getUTCFullYear()}`;
+}
+
+function buildPreview(date: Date, items: ParsedSaleItem[]): string {
+  const lines = items.map(
+    (it) =>
+      `${it.itemNumber}. ${it.productName} — ${formatIDR(it.amount)} (${it.paymentMethod}) · modal ${formatIDR(it.cogs)}`,
+  );
+  const totalSell = items.reduce((s, it) => s + it.amount, 0);
+  const totalCogs = items.reduce((s, it) => s + it.cogs, 0);
+  const profit = totalSell - totalCogs;
+
+  return [
+    `📋 *Laporan ${formatIndoDate(date)}* (${items.length} item)`,
+    "",
+    ...lines,
+    "",
+    `💰 Total jual: ${formatIDR(totalSell)}`,
+    `📦 Total modal: ${formatIDR(totalCogs)}`,
+    `📈 Laba kotor: ${formatIDR(profit)}`,
+    "",
+    "Konfirmasi laporan ini?",
+  ].join("\n");
+}
+
+async function handleSalesReport(ctx: Context, text: string) {
+  const parsed = parseSalesReport(text);
+
+  if (!parsed.reportDate) {
+    await ctx.reply(
+      "⚠️ Tanggal tidak terdeteksi. Tambahkan baris seperti `TODAY 12 MEI 2026` di atas item.",
+      { parse_mode: "Markdown" },
+    );
+    return;
+  }
+  if (parsed.items.length === 0) {
+    await ctx.reply(
+      "⚠️ Tidak ada item terdeteksi. Format: `1. Nama Produk(400-TF, 250)`",
+      { parse_mode: "Markdown" },
+    );
+    return;
+  }
+
+  await ctx.reply("⏳ Menyimpan draft laporan...");
+
+  let pendingIds: string[];
+  try {
+    pendingIds = await createPendingSales(
+      parsed.items.map((it) => ({
+        reportDate: parsed.reportDate!,
+        itemNumber: it.itemNumber,
+        productName: it.productName,
+        amount: it.amount,
+        cogs: it.cogs,
+        paymentMethod: it.paymentMethod,
+        rawLine: it.rawLine,
+      })),
+    );
+  } catch (err) {
+    console.error("[bot] sales draft error:", err);
+    await ctx.reply(`❌ Gagal menyimpan draft: ${(err as Error).message}`);
+    return;
+  }
+
+  const kb = new InlineKeyboard()
+    .text("✅ Simpan", `sale-confirm:${pendingIds.join(",")}`)
+    .text("❌ Batal", `sale-reject:${pendingIds.join(",")}`);
+
+  let preview = buildPreview(parsed.reportDate, parsed.items);
+  if (parsed.unparsedLines.length > 0) {
+    preview +=
+      "\n\n⚠️ Baris tidak terparsing:\n" +
+      parsed.unparsedLines.map((l) => `• ${l}`).join("\n");
+  }
+
+  await ctx.reply(preview, {
+    parse_mode: "Markdown",
+    reply_markup: kb,
+  });
+}
+
 type WizardStep =
   | "idle"
   | "awaiting-name"
@@ -175,13 +284,12 @@ export function buildBot(token: string): Bot {
   bot.command("start", async (ctx) => {
     await ctx.reply(
       `👟 *CANALAA Admin Bot*\n\n` +
-        `*Dua cara tambah produk:*\n\n` +
-        `*1. Quick (1 pesan)*\n` +
-        `Kirim foto + caption:\n` +
-        `\`\`\`\nRunner Black\n40=25cm\n41=26cm\n\`\`\`\n` +
-        `→ produk langsung dibuat (harga random 450k–530k, auto-featured)\n\n` +
-        `*2. Wizard (step-by-step)*\n` +
-        `/add — mulai, lalu ikuti pertanyaan\n\n` +
+        `*Tambah produk:*\n` +
+        `Foto + caption \`\`\`\nRunner Black\n40=25cm\n41=26cm\`\`\`\n` +
+        `atau /add untuk wizard\n\n` +
+        `*Laporan penjualan harian:*\n` +
+        `/laporan untuk lihat format, atau langsung kirim:\n` +
+        `\`\`\`\nTODAY 12 MEI 2026\n1. NB 2002R(400-TF, 250)\n\`\`\`\n\n` +
         `*Perintah lain:*\n` +
         `/done /cancel /featured /help`,
       { parse_mode: "Markdown" },
@@ -366,9 +474,60 @@ export function buildBot(token: string): Bot {
       return;
     }
 
+    // Sales report auto-detection — falls through if nothing matched the wizard
+    if (looksLikeSalesReport(text)) {
+      await handleSalesReport(ctx, text);
+      return;
+    }
+
     await ctx.reply(
-      "💡 Mulai produk baru dengan /add atau lihat /help",
+      "💡 Tambah produk → /add\nLaporan penjualan → /laporan\nPanduan → /help",
     );
+  });
+
+  bot.command("laporan", async (ctx) => {
+    await ctx.reply(
+      "📋 Kirim laporan penjualan dengan format:\n\n" +
+        "```\nTODAY 12 MEI 2026\n\n" +
+        "1. NB 2002R ABU(400-TF, 250)\n" +
+        "2. BLEZER WARNA WARNI(200-CASH, 120)\n```\n\n" +
+        "Format per item: `N. Nama Produk(JUAL-METODE, MODAL)` — harga dan modal dalam ribuan.",
+      { parse_mode: "Markdown" },
+    );
+  });
+
+  bot.on("callback_query:data", async (ctx) => {
+    const data = ctx.callbackQuery.data;
+    const [action, idsStr] = data.split(":");
+    const ids = (idsStr ?? "").split(",").filter(Boolean);
+
+    if (action !== "sale-confirm" && action !== "sale-reject") {
+      await ctx.answerCallbackQuery();
+      return;
+    }
+    if (ids.length === 0) {
+      await ctx.answerCallbackQuery({ text: "Tidak ada item untuk diproses." });
+      return;
+    }
+
+    try {
+      if (action === "sale-confirm") {
+        await confirmSales(ids);
+        await ctx.editMessageReplyMarkup(undefined);
+        await ctx.reply(
+          `✅ ${ids.length} penjualan tersimpan.\n→ ${getSiteUrl()}/dashboard`,
+        );
+      } else {
+        await rejectSales(ids);
+        await ctx.editMessageReplyMarkup(undefined);
+        await ctx.reply(`❌ ${ids.length} penjualan dibatalkan.`);
+      }
+      await ctx.answerCallbackQuery();
+    } catch (err) {
+      console.error("[bot] callback error:", err);
+      await ctx.answerCallbackQuery({ text: "Gagal memproses." });
+      await ctx.reply(`❌ Error: ${(err as Error).message}`);
+    }
   });
 
   bot.catch((err) => {

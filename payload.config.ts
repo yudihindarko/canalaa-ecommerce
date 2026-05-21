@@ -9,6 +9,7 @@ import sharp from "sharp";
 import { Users } from "./collections/Users";
 import { Media } from "./collections/Media";
 import { Products } from "./collections/Products";
+import { Sales } from "./collections/Sales";
 
 const filename = fileURLToPath(import.meta.url);
 const dirname = path.dirname(filename);
@@ -21,7 +22,7 @@ export default buildConfig({
       description: "Manage CANALAA products and media",
     },
   },
-  collections: [Users, Media, Products],
+  collections: [Users, Media, Products, Sales],
   editor: lexicalEditor(),
   secret: process.env.PAYLOAD_SECRET || "",
   typescript: {
@@ -31,6 +32,10 @@ export default buildConfig({
     pool: {
       connectionString: process.env.DATABASE_URI || "",
     },
+    // TEMPORARY: enabled so the new "sales" collection's table is auto-created
+    // on first deploy. Revert to false (or remove) in the very next commit
+    // once the table is verified in Neon.
+    push: true,
   }),
   sharp,
   plugins: [

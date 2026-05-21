@@ -137,7 +137,7 @@ async function handleQuickAdd(
       `🤖 _Generating 2 AI marketing variants di background..._`,
       { parse_mode: "Markdown" },
     );
-    void triggerAiMarketing(id);
+    await triggerAiMarketing(id);
   } catch (err) {
     console.error("[bot] quick-add error:", err);
     await ctx.reply(`❌ Gagal: ${(err as Error).message}`);
@@ -547,7 +547,7 @@ export function buildBot(token: string): Bot {
         `🤖 _Generating 2 AI marketing variants di background..._`,
         { parse_mode: "Markdown" },
       );
-      void triggerAiMarketing(id);
+      await triggerAiMarketing(id);
     } catch (err) {
       console.error("[bot] create error:", err);
       await ctx.reply(`❌ Gagal menyimpan: ${(err as Error).message}`);

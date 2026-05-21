@@ -52,6 +52,38 @@ async function downloadPhoto(
   return { buffer, mimeType: "image/jpeg", filename };
 }
 
+/**
+ * Fire-and-forget call to the AI marketing endpoint. The endpoint returns 200
+ * immediately and runs the actual Gemini work in its own background context,
+ * so this awaits only the quick ack — bot reply stays snappy.
+ */
+async function triggerAiMarketing(productId: string | number) {
+  const secret = process.env.AI_GENERATION_SECRET;
+  if (!secret) {
+    console.warn("[bot] AI_GENERATION_SECRET not set — skipping AI marketing");
+    return;
+  }
+  try {
+    const res = await fetch(`${getSiteUrl()}/api/admin/generate-marketing`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "x-internal-secret": secret,
+      },
+      body: JSON.stringify({ productId }),
+    });
+    if (!res.ok) {
+      console.warn(
+        "[bot] AI marketing trigger non-OK:",
+        res.status,
+        await res.text(),
+      );
+    }
+  } catch (err) {
+    console.error("[bot] AI marketing trigger failed:", err);
+  }
+}
+
 async function handleQuickAdd(
   ctx: Context,
   photos: PhotoBuffer[],
@@ -96,14 +128,16 @@ async function handleQuickAdd(
       photoBuffers: photos,
       featured: parsed.featured ?? false,
     };
-    const { slug } = await createProductFromDraft(draft);
+    const { slug, id } = await createProductFromDraft(draft);
     const site = getSiteUrl();
     await ctx.reply(
       `✅ *${draft.name}* berhasil dibuat!\n\n` +
       `→ ${site}/products/${slug}\n` +
-      `→ ${site}/admin/collections/products`,
+      `→ ${site}/admin/collections/products\n\n` +
+      `🤖 _Generating 2 AI marketing variants di background..._`,
       { parse_mode: "Markdown" },
     );
+    void triggerAiMarketing(id);
   } catch (err) {
     console.error("[bot] quick-add error:", err);
     await ctx.reply(`❌ Gagal: ${(err as Error).message}`);
@@ -503,15 +537,17 @@ export function buildBot(token: string): Bot {
         photoBuffers: state.photos,
         featured: state.featured ?? true,
       };
-      const { slug } = await createProductFromDraft(draft);
+      const { slug, id } = await createProductFromDraft(draft);
       resetState(userId);
       const site = getSiteUrl();
       await ctx.reply(
         `✅ *${draft.name}* berhasil dibuat!\n\n` +
         `→ ${site}/products/${slug}\n` +
-        `→ ${site}/admin/collections/products`,
+        `→ ${site}/admin/collections/products\n\n` +
+        `🤖 _Generating 2 AI marketing variants di background..._`,
         { parse_mode: "Markdown" },
       );
+      void triggerAiMarketing(id);
     } catch (err) {
       console.error("[bot] create error:", err);
       await ctx.reply(`❌ Gagal menyimpan: ${(err as Error).message}`);

@@ -4,6 +4,15 @@ export type SaleSummary = {
   amount: number;
   cogs: number;
   paymentMethod: string;
+  category?: string;
+};
+
+export type ExpenseSummary = {
+  month: Date;
+  type: "fixed" | "variable";
+  category: string;
+  amount: number;
+  notes?: string;
 };
 
 export type Totals = {
@@ -131,4 +140,145 @@ export function formatIDRCompact(amount: number): string {
   if (amount >= 1_000_000) return `Rp ${(amount / 1_000_000).toFixed(1)}jt`;
   if (amount >= 1_000) return `Rp ${(amount / 1_000).toFixed(0)}rb`;
   return `Rp ${amount}`;
+}
+
+// ─── Monthly P&L ────────────────────────────────────────────────────────
+
+export function monthKey(d: Date): string {
+  // YYYY-MM (UTC)
+  const y = d.getUTCFullYear();
+  const m = String(d.getUTCMonth() + 1).padStart(2, "0");
+  return `${y}-${m}`;
+}
+
+export function monthBounds(monthYear: string): { start: Date; end: Date } {
+  const [y, m] = monthYear.split("-").map((n) => parseInt(n, 10));
+  const start = new Date(Date.UTC(y, m - 1, 1));
+  const end = new Date(Date.UTC(y, m, 1));
+  return { start, end };
+}
+
+export function listAvailableMonths(
+  sales: SaleSummary[],
+  expenses: ExpenseSummary[],
+): string[] {
+  const months = new Set<string>();
+  for (const s of sales) months.add(monthKey(s.reportDate));
+  for (const e of expenses) months.add(monthKey(e.month));
+  return [...months].sort().reverse(); // newest first
+}
+
+export type CategoryRollup = {
+  category: string;
+  units: number;
+  revenue: number;
+  cogs: number;
+};
+
+export function salesByCategory(sales: SaleSummary[]): CategoryRollup[] {
+  const map = new Map<string, CategoryRollup>();
+  for (const s of sales) {
+    const cat = s.category || "Other";
+    const cur = map.get(cat) ?? {
+      category: cat,
+      units: 0,
+      revenue: 0,
+      cogs: 0,
+    };
+    cur.units += 1;
+    cur.revenue += s.amount;
+    cur.cogs += s.cogs;
+    map.set(cat, cur);
+  }
+  // Preserve a canonical order
+  const order = ["Sepatu", "Jaket", "Kaos", "Celana", "Other"];
+  return order
+    .map((c) => map.get(c))
+    .filter((x): x is CategoryRollup => !!x)
+    .concat(
+      [...map.values()].filter((c) => !order.includes(c.category)),
+    );
+}
+
+export type ExpenseRollup = {
+  category: string;
+  amount: number;
+};
+
+export function expensesByCategory(
+  expenses: ExpenseSummary[],
+): ExpenseRollup[] {
+  const map = new Map<string, number>();
+  for (const e of expenses) {
+    map.set(e.category, (map.get(e.category) ?? 0) + e.amount);
+  }
+  return [...map.entries()]
+    .map(([category, amount]) => ({ category, amount }))
+    .sort((a, b) => b.amount - a.amount);
+}
+
+export type MonthlyPnL = {
+  monthKey: string;
+  fixedTotal: number;
+  fixed: ExpenseRollup[];
+  variableOpsTotal: number; // non-COGS variable costs (packing, ads, etc.)
+  variableOps: ExpenseRollup[];
+  cogsByCategory: CategoryRollup[]; // COGS via Sales.cogs grouped by category
+  cogsTotal: number;
+  variableTotal: number; // = cogsTotal + variableOpsTotal
+  totalCosts: number; // = fixed + variable
+  salesByCategory: CategoryRollup[];
+  salesTotal: number;
+  profit: number;
+};
+
+export function computeMonthlyPnL(
+  monthYear: string,
+  allSales: SaleSummary[],
+  allExpenses: ExpenseSummary[],
+): MonthlyPnL {
+  const { start, end } = monthBounds(monthYear);
+
+  const sales = allSales.filter(
+    (s) => s.reportDate >= start && s.reportDate < end,
+  );
+  const expenses = allExpenses.filter(
+    (e) => e.month >= start && e.month < end,
+  );
+
+  const fixed = expensesByCategory(expenses.filter((e) => e.type === "fixed"));
+  const variableOps = expensesByCategory(
+    expenses.filter((e) => e.type === "variable"),
+  );
+  const fixedTotal = fixed.reduce((s, e) => s + e.amount, 0);
+  const variableOpsTotal = variableOps.reduce((s, e) => s + e.amount, 0);
+
+  const salesCategories = salesByCategory(sales);
+  const cogsByCat: CategoryRollup[] = salesCategories.map((c) => ({
+    category: c.category,
+    units: c.units,
+    revenue: 0, // unused in cogs context
+    cogs: c.cogs,
+  }));
+  const cogsTotal = cogsByCat.reduce((s, c) => s + c.cogs, 0);
+
+  const variableTotal = cogsTotal + variableOpsTotal;
+  const totalCosts = fixedTotal + variableTotal;
+  const salesTotal = salesCategories.reduce((s, c) => s + c.revenue, 0);
+  const profit = salesTotal - totalCosts;
+
+  return {
+    monthKey: monthYear,
+    fixed,
+    fixedTotal,
+    variableOps,
+    variableOpsTotal,
+    cogsByCategory: cogsByCat,
+    cogsTotal,
+    variableTotal,
+    totalCosts,
+    salesByCategory: salesCategories,
+    salesTotal,
+    profit,
+  };
 }

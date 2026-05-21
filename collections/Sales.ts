@@ -1,5 +1,6 @@
 import type { CollectionConfig } from "payload";
 import { revalidatePath } from "next/cache";
+import { detectCategory, PRODUCT_CATEGORIES } from "../lib/category-detector";
 
 function revalidateDashboard() {
   try {
@@ -22,6 +23,7 @@ export const Sales: CollectionConfig = {
     defaultColumns: [
       "reportDate",
       "productName",
+      "category",
       "amount",
       "cogs",
       "paymentMethod",
@@ -56,6 +58,29 @@ export const Sales: CollectionConfig = {
       name: "productName",
       type: "text",
       required: true,
+    },
+    {
+      name: "category",
+      type: "select",
+      required: true,
+      index: true,
+      options: PRODUCT_CATEGORIES.map((c) => ({ label: c, value: c })),
+      admin: {
+        description:
+          "Otomatis dideteksi dari nama produk. Bisa diubah manual jika perlu.",
+        position: "sidebar",
+      },
+      hooks: {
+        beforeValidate: [
+          ({ value, data }) => {
+            if (typeof value === "string" && value.length > 0) return value;
+            if (typeof data?.productName === "string" && data.productName) {
+              return detectCategory(data.productName);
+            }
+            return "Other";
+          },
+        ],
+      },
     },
     {
       name: "amount",

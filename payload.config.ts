@@ -10,6 +10,7 @@ import { Users } from "./collections/Users";
 import { Media } from "./collections/Media";
 import { Products } from "./collections/Products";
 import { Sales } from "./collections/Sales";
+import { Expenses } from "./collections/Expenses";
 
 const filename = fileURLToPath(import.meta.url);
 const dirname = path.dirname(filename);
@@ -27,7 +28,7 @@ export default buildConfig({
       ],
     },
   },
-  collections: [Users, Media, Products, Sales],
+  collections: [Users, Media, Products, Sales, Expenses],
   editor: lexicalEditor(),
   secret: process.env.PAYLOAD_SECRET || "",
   typescript: {
@@ -37,8 +38,10 @@ export default buildConfig({
     pool: {
       connectionString: process.env.DATABASE_URI || "",
     },
-    // push: true was enabled temporarily to auto-create the sales table on
-    // first deploy. Reverted now that the table exists in Neon.
+    // TEMPORARY: enabled so the new "expenses" + "sales.category" schema
+    // auto-syncs on first deploy. Revert to false in the very next commit
+    // once the table/columns are verified in Neon.
+    push: true,
   }),
   sharp,
   plugins: [

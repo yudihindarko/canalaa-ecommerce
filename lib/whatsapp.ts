@@ -1,6 +1,6 @@
 import type { Product, Size } from "./types";
 
-export const WA_NUMBER = "6281234567890";
+export const WA_NUMBER = "6285155201153";
 
 export function buildWhatsAppUrl(product: Product, size?: Size): string {
   const lines = [

@@ -1,7 +1,8 @@
-import Link from "next/link";
-
 const GOOGLE_MAPS_EMBED_URL =
   "https://www.google.com/maps?q=-6.395747,106.7793649&z=17&output=embed";
+
+const INSTAGRAM_URL = "https://www.instagram.com/canalaa.official";
+const INSTAGRAM_HANDLE = "@canalaa.official";
 
 export function Footer() {
   return (
@@ -38,6 +39,31 @@ export function Footer() {
               <br />
               Indonesia, 16434
             </address>
+
+            <a
+              href={INSTAGRAM_URL}
+              target="_blank"
+              rel="noopener noreferrer"
+              aria-label={`CANALAA on Instagram ${INSTAGRAM_HANDLE}`}
+              className="mt-1 inline-flex w-fit items-center gap-2 text-sm font-medium hover:opacity-60 transition-opacity"
+            >
+              <svg
+                xmlns="http://www.w3.org/2000/svg"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth={1.75}
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                className="h-4 w-4"
+                aria-hidden="true"
+              >
+                <rect x="3" y="3" width="18" height="18" rx="5" />
+                <circle cx="12" cy="12" r="4" />
+                <circle cx="17.5" cy="6.5" r="1" fill="currentColor" />
+              </svg>
+              {INSTAGRAM_HANDLE}
+            </a>
           </div>
         </div>
 

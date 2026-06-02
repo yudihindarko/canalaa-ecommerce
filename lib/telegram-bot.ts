@@ -11,6 +11,7 @@ import {
   parseCaption,
   parseSizes,
   randomPriceIDR,
+  rejectAllPendingDrafts,
   rejectExpenses,
   rejectSales,
   type DraftProduct,
@@ -27,6 +28,7 @@ import {
   parseExpenseReport,
   type ParsedExpenseItem,
 } from "./expense-parser";
+import { monthKey } from "./sales-aggregate";
 
 type PhotoBuffer = { buffer: Buffer; mimeType: string; filename: string };
 
@@ -185,6 +187,27 @@ function formatIDR(amount: number): string {
 
 function formatIndoDate(d: Date): string {
   return `${d.getUTCDate()} ${INDO_MONTHS_FULL[d.getUTCMonth()]} ${d.getUTCFullYear()}`;
+}
+
+/** Vercel runs in UTC; shift +7h so template dates match Indonesia (WIB). */
+function nowWIB(): Date {
+  return new Date(Date.now() + 7 * 60 * 60 * 1000);
+}
+
+/** Pre-filled header for the /laporan template, e.g. "TODAY 2 JUNI 2026". */
+function salesHeaderToday(): string {
+  const d = nowWIB();
+  return `TODAY ${d.getUTCDate()} ${INDO_MONTHS_FULL[d.getUTCMonth()].toUpperCase()} ${d.getUTCFullYear()}`;
+}
+
+/**
+ * Pre-filled header for the /biaya template, e.g. "BIAYA JUNI 2026".
+ * Uses the 29→28 accounting period (via monthKey), so on/after the 29th it
+ * already points at the next period's label.
+ */
+function expenseHeaderThisMonth(): string {
+  const [y, m] = monthKey(nowWIB()).split("-").map((n) => parseInt(n, 10));
+  return `BIAYA ${INDO_MONTHS_FULL[m - 1].toUpperCase()} ${y}`;
 }
 
 function buildPreview(date: Date, items: ParsedSaleItem[]): string {
@@ -434,6 +457,41 @@ function isAdmin(ctx: Context): boolean {
   return getAdminIds().has(userId);
 }
 
+/**
+ * Unified cancel for any in-progress flow:
+ *  - resets the in-memory product wizard (if any), and
+ *  - sweeps every unconfirmed (pending) sales/expense draft from the DB.
+ *
+ * The DB sweep is what makes a typed "cancel" reliable on serverless, where
+ * the in-memory state may not survive between the preview and the cancel.
+ */
+async function handleCancel(ctx: Context): Promise<void> {
+  const userId = ctx.from!.id;
+  const wizardActive = getState(userId).step !== "idle";
+  resetState(userId);
+
+  let swept = { sales: 0, expenses: 0 };
+  try {
+    swept = await rejectAllPendingDrafts();
+  } catch (err) {
+    console.error("[bot] cancel sweep error:", err);
+    await ctx.reply(`❌ Gagal membatalkan draft: ${(err as Error).message}`);
+    return;
+  }
+
+  const parts: string[] = [];
+  if (wizardActive) parts.push("wizard produk");
+  if (swept.sales > 0) parts.push(`${swept.sales} draft penjualan`);
+  if (swept.expenses > 0) parts.push(`${swept.expenses} draft biaya`);
+
+  if (parts.length === 0) {
+    await ctx.reply("ℹ️ Tidak ada proses yang sedang berjalan.");
+    return;
+  }
+
+  await ctx.reply(`🚫 Dibatalkan: ${parts.join(", ")}.`);
+}
+
 export function buildBot(token: string): Bot {
   const bot = new Bot(token);
 
@@ -457,7 +515,8 @@ export function buildBot(token: string): Bot {
       `/laporan untuk lihat format, atau langsung kirim:\n` +
       `\`\`\`\nTODAY 12 MEI 2026\n1. NB 2002R(400-TF, 250)\n\`\`\`\n\n` +
       `*Perintah lain:*\n` +
-      `/done /cancel /featured /help`,
+      `/done /cancel /featured /help\n\n` +
+      `_Ketik *cancel* atau /cancel kapan saja untuk batalin proses (produk/penjualan/biaya)._`,
       { parse_mode: "Markdown" },
     );
   });
@@ -480,7 +539,10 @@ export function buildBot(token: string): Bot {
       `\`\`\`\nRunner Black\n40=25cm\n41=26cm\n485k\n\`\`\`\n\n` +
       `*WIZARD MODE:*\n` +
       `/add → ikuti pertanyaan satu per satu\n` +
-      `/done /cancel`,
+      `/done /cancel\n\n` +
+      `*BATALKAN:*\n` +
+      `Ketik *cancel* / *batal* / /cancel kapan saja — batalin wizard produk ` +
+      `dan hapus draft penjualan/biaya yang belum dikonfirmasi.`,
       { parse_mode: "Markdown" },
     );
   });
@@ -494,8 +556,7 @@ export function buildBot(token: string): Bot {
   });
 
   bot.command("cancel", async (ctx) => {
-    resetState(ctx.from!.id);
-    await ctx.reply("🚫 Dibatalkan. Mulai lagi dengan /add.");
+    await handleCancel(ctx);
   });
 
   bot.command("featured", async (ctx) => {
@@ -595,6 +656,12 @@ export function buildBot(token: string): Bot {
 
     if (text.startsWith("/")) return; // commands handled above
 
+    // Plain-word cancel — works mid-wizard and mid-sales/expense confirmation
+    if (/^(cancel|batal)$/i.test(text)) {
+      await handleCancel(ctx);
+      return;
+    }
+
     if (state.step === "awaiting-name") {
       state.name = text;
       state.step = "awaiting-price";
@@ -661,31 +728,32 @@ export function buildBot(token: string): Bot {
 
   bot.command("laporan", async (ctx) => {
     await ctx.reply(
-      "📋 Kirim laporan penjualan dengan format:\n\n" +
-      "```\nTODAY 12 MEI 2026\n\n" +
+      "📋 *Laporan penjualan* — tap template di bawah untuk copy, ubah angkanya, kirim balik:\n\n" +
+      "```\n" +
+      `${salesHeaderToday()}\n` +
       "1. NB 2002R ABU(400-TF, 250)\n" +
-      "2. BLEZER WARNA WARNI(200-CASH, 120)\n```\n\n" +
-      "Format per item: `N. Nama Produk(JUAL-METODE, MODAL)` — harga dan modal dalam ribuan.",
+      "2. BLEZER WARNA(200-CASH, 120)\n" +
+      "```\n" +
+      "Per item: `N. Nama(JUAL-METODE, MODAL)`\n" +
+      "• Harga & modal dalam *ribuan* — `400` = Rp 400.000\n" +
+      "• Metode: TF / CASH / QRIS / SHOPEE / TIKTOK",
       { parse_mode: "Markdown" },
     );
   });
 
   bot.command("biaya", async (ctx) => {
     await ctx.reply(
-      "💸 Kirim laporan biaya operasional bulanan dengan format:\n\n" +
-      "```\nBIAYA FEB 2026\n\n" +
+      "💸 *Laporan biaya bulanan* — tap template untuk copy, ubah angkanya, kirim balik:\n\n" +
+      "```\n" +
+      `${expenseHeaderThisMonth()}\n` +
       "Internet 177\n" +
       "Listrik 1000\n" +
-      "Sewa toko 2666.667\n" +
+      "Sewa toko 2666\n" +
       "Gaji karyawan 2640\n" +
       "Konsumsi 700\n" +
-      "Plastik 172.2\n" +
-      "Maintenance 100\n```\n\n" +
-      "*Aturan:*\n" +
-      "• Header: `BIAYA <bulan> <tahun>` (contoh: BIAYA FEB 2026)\n" +
-      "• Per baris: `<kategori> <jumlah-ribuan>` — contoh `Internet 177` = Rp 177.000\n" +
-      "• Skip kategori bernilai 0\n" +
-      "• Bot auto-deteksi tetap/variable dari kategori\n\n" +
+      "```\n" +
+      "• Per baris: `<kategori> <jumlah-ribuan>` — `Internet 177` = Rp 177.000\n" +
+      "• Skip kategori bernilai 0 · bot auto-deteksi tetap/variable\n\n" +
       "*Kategori valid:* Internet, Listrik, Sewa toko, Gaji karyawan, Bonus, THR, " +
       "Konsumsi, Renovasi, Plastik, Kardus, Kaos kaki, Maintenance, Ads IG, Shoes care, Price tag.",
       { parse_mode: "Markdown" },

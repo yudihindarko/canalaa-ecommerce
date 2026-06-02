@@ -144,17 +144,30 @@ export function formatIDRCompact(amount: number): string {
 
 // ─── Monthly P&L ────────────────────────────────────────────────────────
 
+// Accounting period is NOT the calendar month: it runs from the 29th of the
+// previous month through the 28th, and is labeled by the CLOSING month.
+// e.g. period "2026-05" (Mei) = 29 Apr 2026 .. 28 Mei 2026.
 export function monthKey(d: Date): string {
-  // YYYY-MM (UTC)
-  const y = d.getUTCFullYear();
-  const m = String(d.getUTCMonth() + 1).padStart(2, "0");
-  return `${y}-${m}`;
+  // YYYY-MM label (UTC). A date on/after the 29th rolls into the next period.
+  let y = d.getUTCFullYear();
+  let m = d.getUTCMonth(); // 0-based
+  if (d.getUTCDate() >= 29) {
+    m += 1;
+    if (m > 11) {
+      m = 0;
+      y += 1;
+    }
+  }
+  return `${y}-${String(m + 1).padStart(2, "0")}`;
 }
 
 export function monthBounds(monthYear: string): { start: Date; end: Date } {
+  // Label month M → [29th of (M-1), 29th of M). End is exclusive, so the 28th
+  // (last day of the period) is fully included. Date.UTC normalizes the
+  // negative/overflowing month index across year boundaries.
   const [y, m] = monthYear.split("-").map((n) => parseInt(n, 10));
-  const start = new Date(Date.UTC(y, m - 1, 1));
-  const end = new Date(Date.UTC(y, m, 1));
+  const start = new Date(Date.UTC(y, m - 2, 29));
+  const end = new Date(Date.UTC(y, m - 1, 29));
   return { start, end };
 }
 

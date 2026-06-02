@@ -443,6 +443,52 @@ export async function rejectExpenses(ids: string[]): Promise<void> {
   }
 }
 
+async function rejectAllPendingForCollection(
+  collection: "sales" | "expenses",
+): Promise<number> {
+  const token = await getToken();
+  const findUrl =
+    `${API_URL}/api/${collection}` +
+    `?where[status][equals]=pending&limit=500&depth=0`;
+  const findRes = await fetch(findUrl, {
+    headers: { Authorization: `JWT ${token}` },
+  });
+  if (!findRes.ok) {
+    throw new Error(
+      `Find pending ${collection} gagal: ${findRes.status} ${await findRes.text()}`,
+    );
+  }
+  const findData = (await findRes.json()) as {
+    docs: Array<{ id: string | number }>;
+  };
+
+  let deleted = 0;
+  for (const doc of findData.docs) {
+    const delRes = await fetch(`${API_URL}/api/${collection}/${doc.id}`, {
+      method: "DELETE",
+      headers: { Authorization: `JWT ${token}` },
+    });
+    if (delRes.ok || delRes.status === 404) deleted++;
+  }
+  return deleted;
+}
+
+/**
+ * Stateless cancel: delete every unconfirmed (status=pending) sale and expense
+ * draft. Used by the bot's /cancel so a typed cancel works even on serverless
+ * where in-memory conversation state may not survive between requests.
+ */
+export async function rejectAllPendingDrafts(): Promise<{
+  sales: number;
+  expenses: number;
+}> {
+  const [sales, expenses] = await Promise.all([
+    rejectAllPendingForCollection("sales"),
+    rejectAllPendingForCollection("expenses"),
+  ]);
+  return { sales, expenses };
+}
+
 function monthBoundsISO(monthDate: Date): { startISO: string; endISO: string } {
   const start = new Date(
     Date.UTC(monthDate.getUTCFullYear(), monthDate.getUTCMonth(), 1),

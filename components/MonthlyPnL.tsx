@@ -4,6 +4,7 @@ import { useMemo, useState } from "react";
 import {
   computeMonthlyPnL,
   formatIDR,
+  monthBounds,
   monthKey,
   type ExpenseSummary,
   type SaleSummary,
@@ -24,9 +25,17 @@ const INDO_MONTHS = [
   "Desember",
 ];
 
+function shortDay(d: Date): string {
+  return `${d.getUTCDate()} ${INDO_MONTHS[d.getUTCMonth()].slice(0, 3)}`;
+}
+
 function formatMonthLabel(key: string): string {
+  // Period runs 29th→28th, so show the exact range alongside the label.
   const [y, m] = key.split("-").map((n) => parseInt(n, 10));
-  return `${INDO_MONTHS[m - 1]} ${y}`;
+  const { start, end } = monthBounds(key);
+  const last = new Date(end);
+  last.setUTCDate(last.getUTCDate() - 1); // exclusive 29th → inclusive 28th
+  return `${INDO_MONTHS[m - 1]} ${y} · ${shortDay(start)}–${shortDay(last)}`;
 }
 
 function Row({

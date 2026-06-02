@@ -615,6 +615,40 @@ export function buildBot(token: string): Bot {
     }
   });
 
+  bot.command("laporan", async (ctx) => {
+    await ctx.reply(
+      "📋 *Laporan penjualan* — tap template di bawah untuk copy, ubah angkanya, kirim balik:\n\n" +
+      "```\n" +
+      `${salesHeaderToday()}\n` +
+      "1. NB 2002R ABU(400-TF, 250)\n" +
+      "2. BLEZER WARNA(200-CASH, 120)\n" +
+      "```\n" +
+      "Per item: `N. Nama(JUAL-METODE, MODAL)`\n" +
+      "• Harga & modal dalam *ribuan* — `400` = Rp 400.000\n" +
+      "• Metode: TF / CASH / QRIS / SHOPEE / TIKTOK",
+      { parse_mode: "Markdown" },
+    );
+  });
+
+  bot.command("biaya", async (ctx) => {
+    await ctx.reply(
+      "💸 *Laporan biaya bulanan* — tap template untuk copy, ubah angkanya, kirim balik:\n\n" +
+      "```\n" +
+      `${expenseHeaderThisMonth()}\n` +
+      "Internet 177\n" +
+      "Listrik 1000\n" +
+      "Sewa toko 2666\n" +
+      "Gaji karyawan 2640\n" +
+      "Konsumsi 700\n" +
+      "```\n" +
+      "• Per baris: `<kategori> <jumlah-ribuan>` — `Internet 177` = Rp 177.000\n" +
+      "• Skip kategori bernilai 0 · bot auto-deteksi tetap/variable\n\n" +
+      "*Kategori valid:* Internet, Listrik, Sewa toko, Gaji karyawan, Bonus, THR, " +
+      "Konsumsi, Renovasi, Plastik, Kardus, Kaos kaki, Maintenance, Ads IG, Shoes care, Price tag.",
+      { parse_mode: "Markdown" },
+    );
+  });
+
   bot.on("message:photo", async (ctx) => {
     const state = getState(ctx.from!.id);
     const photo = ctx.message.photo.at(-1);
@@ -723,40 +757,6 @@ export function buildBot(token: string): Bot {
 
     await ctx.reply(
       "Tambah produk → /add\nLaporan penjualan → /laporan\nLaporan biaya → /biaya\nPanduan → /help",
-    );
-  });
-
-  bot.command("laporan", async (ctx) => {
-    await ctx.reply(
-      "📋 *Laporan penjualan* — tap template di bawah untuk copy, ubah angkanya, kirim balik:\n\n" +
-      "```\n" +
-      `${salesHeaderToday()}\n` +
-      "1. NB 2002R ABU(400-TF, 250)\n" +
-      "2. BLEZER WARNA(200-CASH, 120)\n" +
-      "```\n" +
-      "Per item: `N. Nama(JUAL-METODE, MODAL)`\n" +
-      "• Harga & modal dalam *ribuan* — `400` = Rp 400.000\n" +
-      "• Metode: TF / CASH / QRIS / SHOPEE / TIKTOK",
-      { parse_mode: "Markdown" },
-    );
-  });
-
-  bot.command("biaya", async (ctx) => {
-    await ctx.reply(
-      "💸 *Laporan biaya bulanan* — tap template untuk copy, ubah angkanya, kirim balik:\n\n" +
-      "```\n" +
-      `${expenseHeaderThisMonth()}\n` +
-      "Internet 177\n" +
-      "Listrik 1000\n" +
-      "Sewa toko 2666\n" +
-      "Gaji karyawan 2640\n" +
-      "Konsumsi 700\n" +
-      "```\n" +
-      "• Per baris: `<kategori> <jumlah-ribuan>` — `Internet 177` = Rp 177.000\n" +
-      "• Skip kategori bernilai 0 · bot auto-deteksi tetap/variable\n\n" +
-      "*Kategori valid:* Internet, Listrik, Sewa toko, Gaji karyawan, Bonus, THR, " +
-      "Konsumsi, Renovasi, Plastik, Kardus, Kaos kaki, Maintenance, Ads IG, Shoes care, Price tag.",
-      { parse_mode: "Markdown" },
     );
   });
 

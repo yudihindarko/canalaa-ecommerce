@@ -68,11 +68,29 @@ export function dailyTrend(
   ref: Date = new Date(),
 ): DailyPoint[] {
   const today = startOfDay(ref);
-  const out: DailyPoint[] = [];
+  const start = new Date(today);
+  start.setUTCDate(start.getUTCDate() - (days - 1));
+  const endExclusive = new Date(today);
+  endExclusive.setUTCDate(endExclusive.getUTCDate() + 1);
+  return dailyTrendForPeriod(sales, start, endExclusive, ref);
+}
 
-  for (let i = days - 1; i >= 0; i--) {
-    const day = new Date(today);
-    day.setUTCDate(day.getUTCDate() - i);
+/** Daily points for [start, endExclusive), capped at `ref` (default today). */
+export function dailyTrendForPeriod(
+  sales: SaleSummary[],
+  start: Date,
+  endExclusive: Date,
+  ref: Date = new Date(),
+): DailyPoint[] {
+  const today = startOfDay(ref);
+  const lastInclusive = new Date(endExclusive);
+  lastInclusive.setUTCDate(lastInclusive.getUTCDate() - 1);
+  const until = today < lastInclusive ? today : lastInclusive;
+
+  const out: DailyPoint[] = [];
+  const day = startOfDay(start);
+
+  while (day <= until) {
     const key = day.toISOString().slice(0, 10);
     const sameDay = sales.filter(
       (s) => s.reportDate.toISOString().slice(0, 10) === key,
@@ -85,6 +103,7 @@ export function dailyTrend(
       profit: revenue - cogs,
       count: sameDay.length,
     });
+    day.setUTCDate(day.getUTCDate() + 1);
   }
 
   return out;
@@ -169,6 +188,67 @@ export function monthBounds(monthYear: string): { start: Date; end: Date } {
   const start = new Date(Date.UTC(y, m - 2, 29));
   const end = new Date(Date.UTC(y, m - 1, 29));
   return { start, end };
+}
+
+const INDO_MONTHS_SHORT = [
+  "Jan",
+  "Feb",
+  "Mar",
+  "Apr",
+  "Mei",
+  "Jun",
+  "Jul",
+  "Agu",
+  "Sep",
+  "Okt",
+  "Nov",
+  "Des",
+];
+
+/** e.g. "29 Jun–28 Jul" for period label "2026-07". */
+export function formatPeriodRange(monthYear: string): string {
+  const { start, end } = monthBounds(monthYear);
+  const last = new Date(end);
+  last.setUTCDate(last.getUTCDate() - 1);
+  const short = (d: Date) =>
+    `${d.getUTCDate()} ${INDO_MONTHS_SHORT[d.getUTCMonth()]}`;
+  return `${short(start)}–${short(last)}`;
+}
+
+const INDO_MONTHS_FULL = [
+  "Januari",
+  "Februari",
+  "Maret",
+  "April",
+  "Mei",
+  "Juni",
+  "Juli",
+  "Agustus",
+  "September",
+  "Oktober",
+  "November",
+  "Desember",
+];
+
+/** e.g. "Juli 2026 · 29 Jun–28 Jul" for period label "2026-07". */
+export function formatMonthLabel(monthYear: string): string {
+  const [y, m] = monthYear.split("-").map((n) => parseInt(n, 10));
+  const { start, end } = monthBounds(monthYear);
+  const last = new Date(end);
+  last.setUTCDate(last.getUTCDate() - 1);
+  const short = (d: Date) =>
+    `${d.getUTCDate()} ${INDO_MONTHS_FULL[d.getUTCMonth()].slice(0, 3)}`;
+  return `${INDO_MONTHS_FULL[m - 1]} ${y} · ${short(start)}–${short(last)}`;
+}
+
+export function filterByPeriod(
+  sales: SaleSummary[],
+  start: Date,
+  endExclusive: Date,
+): SaleSummary[] {
+  return sales.filter(
+    (s) => s.reportDate >= start && s.reportDate < endExclusive,
+  );
 }
 
 export function listAvailableMonths(

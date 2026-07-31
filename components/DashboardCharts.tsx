@@ -67,12 +67,14 @@ function KpiCard({
 
 export function DashboardCharts({
   kpis,
+  periodLabel,
   trend,
   payments,
   top,
   empty,
 }: {
-  kpis: { today: Totals; last7: Totals; last30: Totals; all: Totals };
+  kpis: { today: Totals; last7: Totals; period: Totals; all: Totals };
+  periodLabel: string;
   trend: DailyPoint[];
   payments: PaymentSlice[];
   top: TopProduct[];
@@ -95,7 +97,11 @@ export function DashboardCharts({
       <section className="grid grid-cols-2 gap-3 md:grid-cols-4 md:gap-4">
         <KpiCard label="Hari Ini" totals={kpis.today} />
         <KpiCard label="7 Hari" totals={kpis.last7} />
-        <KpiCard label="30 Hari" totals={kpis.last30} />
+        <KpiCard
+          label="Periode Ini"
+          totals={kpis.period}
+          sub={periodLabel}
+        />
         <KpiCard label="All Time" totals={kpis.all} />
       </section>
 
@@ -103,9 +109,11 @@ export function DashboardCharts({
       <section className="rounded-md border border-hairline bg-background p-4">
         <div className="mb-4 flex items-baseline justify-between">
           <h2 className="text-sm font-semibold uppercase tracking-wider">
-            Tren 30 Hari
+            Tren Periode
           </h2>
-          <span className="text-xs text-muted">Revenue per hari</span>
+          <span className="text-xs text-muted">
+            {periodLabel} · revenue per hari
+          </span>
         </div>
         <div className="h-64 w-full">
           <ResponsiveContainer width="100%" height="100%">
@@ -151,7 +159,7 @@ export function DashboardCharts({
             <h2 className="text-sm font-semibold uppercase tracking-wider">
               Metode Pembayaran
             </h2>
-            <span className="text-xs text-muted">30 hari terakhir</span>
+            <span className="text-xs text-muted">{periodLabel}</span>
           </div>
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
             <div className="h-48 w-full">
@@ -213,7 +221,7 @@ export function DashboardCharts({
             <h2 className="text-sm font-semibold uppercase tracking-wider">
               Produk Terlaris
             </h2>
-            <span className="text-xs text-muted">30 hari · top 10</span>
+            <span className="text-xs text-muted">{periodLabel} · top 10</span>
           </div>
           <ol className="flex flex-col gap-2 text-sm">
             {top.map((p, i) => (

@@ -4,10 +4,14 @@ import { DashboardCharts } from "@/components/DashboardCharts";
 import { MonthlyPnL } from "@/components/MonthlyPnL";
 import {
   byPayment,
-  dailyTrend,
+  dailyTrendForPeriod,
   daysAgo,
   filterByDate,
+  filterByPeriod,
+  formatPeriodRange,
   listAvailableMonths,
+  monthBounds,
+  monthKey,
   topProducts,
   totalsFor,
   type ExpenseSummary,
@@ -54,16 +58,19 @@ export default async function DashboardPage() {
 
   const today = daysAgo(0);
   const last7 = daysAgo(6);
-  const last30 = daysAgo(29);
+  const periodKey = monthKey(new Date());
+  const { start: periodStart, end: periodEnd } = monthBounds(periodKey);
+  const periodSales = filterByPeriod(sales, periodStart, periodEnd);
+  const periodLabel = formatPeriodRange(periodKey);
 
   const totalsToday = totalsFor(filterByDate(sales, today));
   const totals7 = totalsFor(filterByDate(sales, last7));
-  const totals30 = totalsFor(filterByDate(sales, last30));
+  const totalsPeriod = totalsFor(periodSales);
   const totalsAll = totalsFor(sales);
 
-  const trend = dailyTrend(sales, 30);
-  const payments = byPayment(filterByDate(sales, last30));
-  const top = topProducts(filterByDate(sales, last30), 10);
+  const trend = dailyTrendForPeriod(sales, periodStart, periodEnd);
+  const payments = byPayment(periodSales);
+  const top = topProducts(periodSales, 10);
   const availableMonths = listAvailableMonths(sales, expenses);
 
   const missingCategoryCount = sales.filter((s) => !s.category).length;
@@ -74,9 +81,10 @@ export default async function DashboardPage() {
         kpis={{
           today: totalsToday,
           last7: totals7,
-          last30: totals30,
+          period: totalsPeriod,
           all: totalsAll,
         }}
+        periodLabel={periodLabel}
         trend={trend}
         payments={payments}
         top={top}

@@ -11,6 +11,7 @@ import { Media } from "./collections/Media";
 import { Products } from "./collections/Products";
 import { Sales } from "./collections/Sales";
 import { Expenses } from "./collections/Expenses";
+import { Investors } from "./collections/Investors";
 
 const filename = fileURLToPath(import.meta.url);
 const dirname = path.dirname(filename);
@@ -28,11 +29,31 @@ export default buildConfig({
       ],
     },
   },
-  collections: [Users, Media, Products, Sales, Expenses],
+  collections: [Users, Media, Products, Sales, Expenses, Investors],
   editor: lexicalEditor(),
   secret: process.env.PAYLOAD_SECRET || "",
   typescript: {
     outputFile: path.resolve(dirname, "payload-types.ts"),
+  },
+  onInit: async (payload) => {
+    const existing = await payload.find({
+      collection: "investors",
+      limit: 1,
+      depth: 0,
+    });
+    if (existing.totalDocs > 0) return;
+
+    const defaults = [
+      { name: "Investor 1", sharePercent: 26, sortOrder: 1 },
+      { name: "Investor 2", sharePercent: 32, sortOrder: 2 },
+    ];
+    for (const item of defaults) {
+      await payload.create({
+        collection: "investors",
+        data: { ...item, active: true },
+      });
+    }
+    payload.logger.info("Seeded default investor profit shares (26% / 32%)");
   },
   db: postgresAdapter({
     pool: {

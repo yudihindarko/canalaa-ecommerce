@@ -1,6 +1,7 @@
 import { getPayload } from "payload";
 import config from "@payload-config";
 import { DashboardAnalytics } from "@/components/DashboardAnalytics";
+import { percentToRate, type InvestorShare } from "@/lib/investor-shares";
 import {
   daysAgo,
   filterByDate,
@@ -48,6 +49,20 @@ export default async function DashboardPage() {
     }),
   );
 
+  const investorsResult = await payload.find({
+    collection: "investors",
+    where: { active: { equals: true } },
+    limit: 100,
+    sort: "sortOrder",
+  });
+  const investors: InvestorShare[] = investorsResult.docs.map(
+    (d: Record<string, unknown>) => ({
+      id: String(d.id),
+      name: (d.name as string) ?? "",
+      rate: percentToRate(Number(d.sharePercent) || 0),
+    }),
+  );
+
   const today = daysAgo(0);
   const last7 = daysAgo(6);
   const availableMonths = listAvailableMonths(sales, expenses);
@@ -60,6 +75,7 @@ export default async function DashboardPage() {
         sales={sales}
         expenses={expenses}
         availableMonths={availableMonths}
+        investors={investors}
         fixedKpis={{
           today: totalsFor(filterByDate(sales, today)),
           last7: totalsFor(filterByDate(sales, last7)),

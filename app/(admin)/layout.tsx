@@ -53,6 +53,12 @@ export default async function AdminLayout({
                 Sales table
               </Link>
               <Link
+                href="/admin/collections/investors"
+                className="hidden sm:inline-block hover:opacity-60 transition-opacity"
+              >
+                Bagi hasil
+              </Link>
+              <Link
                 href="/"
                 className="hover:opacity-60 transition-opacity"
               >

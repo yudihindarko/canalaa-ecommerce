@@ -17,6 +17,8 @@
     "@payloadcms/storage-s3": "^3.84.1",
     "@vercel/speed-insights": "^2.0.0",
     "grammy": "^1.43.0",
+    "jspdf": "^4.2.1",
+    "jspdf-autotable": "^5.0.8",
     "motion": "^12.39.0",
     "next": "16.2.6",
     "payload": "^3.84.1",

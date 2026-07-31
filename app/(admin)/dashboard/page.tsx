@@ -1,18 +1,10 @@
 import { getPayload } from "payload";
 import config from "@payload-config";
-import { DashboardCharts } from "@/components/DashboardCharts";
-import { MonthlyPnL } from "@/components/MonthlyPnL";
+import { DashboardAnalytics } from "@/components/DashboardAnalytics";
 import {
-  byPayment,
-  dailyTrendForPeriod,
   daysAgo,
   filterByDate,
-  filterByPeriod,
-  formatPeriodRange,
   listAvailableMonths,
-  monthBounds,
-  monthKey,
-  topProducts,
   totalsFor,
   type ExpenseSummary,
   type SaleSummary,
@@ -58,43 +50,21 @@ export default async function DashboardPage() {
 
   const today = daysAgo(0);
   const last7 = daysAgo(6);
-  const periodKey = monthKey(new Date());
-  const { start: periodStart, end: periodEnd } = monthBounds(periodKey);
-  const periodSales = filterByPeriod(sales, periodStart, periodEnd);
-  const periodLabel = formatPeriodRange(periodKey);
-
-  const totalsToday = totalsFor(filterByDate(sales, today));
-  const totals7 = totalsFor(filterByDate(sales, last7));
-  const totalsPeriod = totalsFor(periodSales);
-  const totalsAll = totalsFor(sales);
-
-  const trend = dailyTrendForPeriod(sales, periodStart, periodEnd);
-  const payments = byPayment(periodSales);
-  const top = topProducts(periodSales, 10);
   const availableMonths = listAvailableMonths(sales, expenses);
 
   const missingCategoryCount = sales.filter((s) => !s.category).length;
 
   return (
     <div className="flex flex-col gap-6 md:gap-8">
-      <DashboardCharts
-        kpis={{
-          today: totalsToday,
-          last7: totals7,
-          period: totalsPeriod,
-          all: totalsAll,
-        }}
-        periodLabel={periodLabel}
-        trend={trend}
-        payments={payments}
-        top={top}
-        empty={sales.length === 0}
-      />
-
-      <MonthlyPnL
+      <DashboardAnalytics
         sales={sales}
         expenses={expenses}
         availableMonths={availableMonths}
+        fixedKpis={{
+          today: totalsFor(filterByDate(sales, today)),
+          last7: totalsFor(filterByDate(sales, last7)),
+          all: totalsFor(sales),
+        }}
       />
 
       {missingCategoryCount > 0 && <BackfillBanner count={missingCategoryCount} />}

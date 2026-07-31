@@ -1,42 +1,12 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useMemo } from "react";
 import {
   computeMonthlyPnL,
   formatIDR,
-  monthBounds,
-  monthKey,
   type ExpenseSummary,
   type SaleSummary,
 } from "@/lib/sales-aggregate";
-
-const INDO_MONTHS = [
-  "Januari",
-  "Februari",
-  "Maret",
-  "April",
-  "Mei",
-  "Juni",
-  "Juli",
-  "Agustus",
-  "September",
-  "Oktober",
-  "November",
-  "Desember",
-];
-
-function shortDay(d: Date): string {
-  return `${d.getUTCDate()} ${INDO_MONTHS[d.getUTCMonth()].slice(0, 3)}`;
-}
-
-function formatMonthLabel(key: string): string {
-  // Period runs 29th→28th, so show the exact range alongside the label.
-  const [y, m] = key.split("-").map((n) => parseInt(n, 10));
-  const { start, end } = monthBounds(key);
-  const last = new Date(end);
-  last.setUTCDate(last.getUTCDate() - 1); // exclusive 29th → inclusive 28th
-  return `${INDO_MONTHS[m - 1]} ${y} · ${shortDay(start)}–${shortDay(last)}`;
-}
 
 function Row({
   label,
@@ -79,25 +49,14 @@ function SectionHeader({ children }: { children: React.ReactNode }) {
 export function MonthlyPnL({
   sales,
   expenses,
-  availableMonths,
+  selected,
+  periodLabel,
 }: {
   sales: SaleSummary[];
   expenses: ExpenseSummary[];
-  availableMonths: string[];
+  selected: string;
+  periodLabel: string;
 }) {
-  const defaultMonth = useMemo(() => {
-    if (availableMonths.length > 0) return availableMonths[0];
-    return monthKey(new Date());
-  }, [availableMonths]);
-
-  const [selected, setSelected] = useState<string>(defaultMonth);
-
-  const monthOptions = useMemo(() => {
-    const months = new Set(availableMonths);
-    months.add(defaultMonth);
-    return [...months].sort().reverse();
-  }, [availableMonths, defaultMonth]);
-
   const pnl = useMemo(
     () => computeMonthlyPnL(selected, sales, expenses),
     [selected, sales, expenses],
@@ -112,23 +71,13 @@ export function MonthlyPnL({
         <h2 className="text-sm font-semibold uppercase tracking-wider">
           Laporan Bulanan (P&L)
         </h2>
-        <select
-          value={selected}
-          onChange={(e) => setSelected(e.target.value)}
-          className="rounded border border-hairline bg-background px-2 py-1 text-sm"
-        >
-          {monthOptions.map((m) => (
-            <option key={m} value={m}>
-              {formatMonthLabel(m)}
-            </option>
-          ))}
-        </select>
+        <span className="text-xs text-muted">{periodLabel}</span>
       </div>
 
       {empty ? (
         <p className="py-6 text-center text-sm text-muted">
-          Belum ada data untuk {formatMonthLabel(selected)}. Tambah penjualan
-          via Telegram + biaya operasional di /admin/collections/expenses.
+          Belum ada data untuk {periodLabel}. Tambah penjualan via Telegram +
+          biaya operasional di /admin/collections/expenses.
         </p>
       ) : (
         <div className="grid grid-cols-1 gap-6 md:grid-cols-2">
